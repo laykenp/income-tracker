@@ -685,6 +685,8 @@
   </div>
   <div class="export-row">
     <button class="btn-ghost" onclick="exportCSV()">export csv</button>
+    <button class="btn-ghost" onclick="document.getElementById('import-csv-input').click()">import csv</button>
+    <input type="file" id="import-csv-input" accept=".csv" style="display:none" onchange="importCSV(this)">
   </div>
 </div>
 
@@ -969,14 +971,16 @@ function saveEdit() {
 }
 
 function exportCSV() {
-  const rows = [['date','project','type','minutes','hours','rate','flat_amount','earned']];
+  const rows = [['date','project','type','minutes','hours','rate','flat_amount','earned','tasks','note']];
   entries.forEach(e => {
+    const note = '"' + (e.type === 'flat' ? (e.flatNote || '') : (e.note || '')).replace(/"/g,'""') + '"';
+    const tasks = e.tasks || '';
     if (e.type === 'flat') {
-      rows.push([e.date, '"' + e.name.replace(/"/g,'""') + '"', 'flat', '', '', '', e.flatAmount.toFixed(2), e.flatAmount.toFixed(2)]);
+      rows.push([e.date, '"' + e.name.replace(/"/g,'""') + '"', 'flat', '', '', '', e.flatAmount.toFixed(2), e.flatAmount.toFixed(2), tasks, note]);
     } else {
       const hrs = (e.totalMins / 60).toFixed(4);
       const earned = (Math.ceil(e.totalMins / 60 * e.rate * 100) / 100).toFixed(2);
-      rows.push([e.date, '"' + e.name.replace(/"/g,'""') + '"', 'hourly', e.totalMins, hrs, e.rate || '', '', earned > 0 ? earned : '']);
+      rows.push([e.date, '"' + e.name.replace(/"/g,'""') + '"', 'hourly', e.totalMins, hrs, e.rate || '', '', earned > 0 ? earned : '', tasks, note]);
     }
   });
   const csv = rows.map(r => r.join(',')).join('\n');
@@ -984,6 +988,33 @@ function exportCSV() {
   a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
   a.download = 'work-log-' + todayStr() + '.csv';
   a.click();
+}
+
+function importCSV(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const lines = e.target.result.split('\n').map(l => l.trim()).filter(l => l);
+    if (lines.length < 2) { alert('No data rows found.'); return; }
+    let imported = 0;
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].match(/("(?:[^"]|"")*"|[^,]*)/g).map(c => c.replace(/^"|"$/g, '').replace(/""/g, '"'));
+      const [date, name, type, minutes, , rate, flat_amount, , tasks, note] = cols;
+      if (!date || !name) continue;
+      if (type === 'flat') {
+        entries.push({ id: Date.now() + i, date, name, type: 'flat', flatAmount: parseFloat(flat_amount) || 0, tasks: parseInt(tasks) || 0, flatNote: note || '' });
+      } else {
+        entries.push({ id: Date.now() + i, date, name, type: 'hourly', totalMins: parseInt(minutes) || 0, rate: parseFloat(rate) || 0, tasks: parseInt(tasks) || 0, note: note || '' });
+      }
+      imported++;
+    }
+    save();
+    render();
+    input.value = '';
+    alert('Imported ' + imported + ' entr' + (imported === 1 ? 'y' : 'ies') + '.');
+  };
+  reader.readAsText(file);
 }
 
 function onFilterChange() {
