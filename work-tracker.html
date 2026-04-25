@@ -841,6 +841,7 @@ function updatePreview() {
   const m = parseInt(document.getElementById('f-mins').value) || 0;
   const total = h * 60 + m;
   const el = document.getElementById('f-preview');
+  if (!el) return;
   if (total > 0) {
     const dec = (total / 60).toFixed(4).replace(/\.?0+$/, '');
     el.textContent = total + 'min = ' + dec + 'h';
@@ -892,7 +893,7 @@ function addEntry() {
     document.getElementById('f-rate').value = '';
     document.getElementById('f-note').value = '';
     document.getElementById('f-tasks').value = '';
-    document.getElementById('f-preview').textContent = '';
+    const prev = document.getElementById('f-preview'); if (prev) prev.textContent = '';
   }
 
   document.getElementById('filter').value = 'current';
