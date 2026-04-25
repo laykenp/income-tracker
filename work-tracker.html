@@ -581,13 +581,13 @@
         </div>
         <div class="field">
           <label>rate ($/hr)</label>
-          <input type="number" id="f-rate" placeholder="35" min="0" step="0.5">
+          <input type="number" id="f-rate" placeholder="1 milli" min="0" step="0.5">
         </div>
       </div>
       <div style="margin-top: 10px; display:grid; grid-template-columns: 1fr 130px; gap: 10px;">
         <div class="field">
           <label>note (optional)</label>
-          <input type="text" id="f-note" placeholder="e.g. finished early, tricky batch">
+          <input type="text" id="f-note" placeholder="e.g. cried the whole time, how did this person get hired?">
         </div>
         <div class="field">
           <label>tasks submitted</label>
@@ -730,6 +730,12 @@
           <input type="number" id="edit-tasks" min="0" step="1" placeholder="0">
         </div>
       </div>
+      <div class="modal-row" style="margin-top:14px;">
+        <div class="modal-field">
+          <label>earned override ($) <span style="color:var(--muted);font-weight:400;">— leave blank to use calculated</span></label>
+          <input type="number" id="edit-earned-override" min="0" step="0.01" placeholder="calculated automatically">
+        </div>
+      </div>
     </div>
 
     <!-- Flat fields -->
@@ -766,6 +772,12 @@
 const DAILY_GOAL = 4;
 const WEEKLY_GOAL = 28;
 const LS_KEY = 'layken_work_tracker_v1';
+
+function calcEarned(e) {
+  if (e.type === 'flat') return e.flatAmount;
+  if (e.earnedOverride != null) return e.earnedOverride;
+  return Math.ceil(e.totalMins / 60 * e.rate * 100) / 100;
+}
 
 let entries = [];
 let currentType = 'hourly';
@@ -883,6 +895,8 @@ function addEntry() {
     document.getElementById('f-preview').textContent = '';
   }
 
+  document.getElementById('filter').value = 'current';
+  document.getElementById('custom-range-inputs').style.display = 'none';
   render();
 }
 
@@ -919,6 +933,7 @@ function openEdit(id) {
     document.getElementById('edit-rate').value = e.rate;
     document.getElementById('edit-note').value = e.note || '';
     document.getElementById('edit-tasks').value = e.tasks || 0;
+    document.getElementById('edit-earned-override').value = e.earnedOverride != null ? e.earnedOverride : '';
   }
 
   document.getElementById('edit-modal').classList.remove('hidden');
@@ -963,6 +978,12 @@ function saveEdit() {
     entry.rate = rate;
     entry.note = note;
     entry.tasks = parseInt(document.getElementById('edit-tasks').value) || 0;
+    const overrideVal = document.getElementById('edit-earned-override').value;
+    if (overrideVal !== '') {
+      entry.earnedOverride = parseFloat(overrideVal);
+    } else {
+      delete entry.earnedOverride;
+    }
   }
 
   save();
@@ -979,7 +1000,7 @@ function exportCSV() {
       rows.push([e.date, '"' + e.name.replace(/"/g,'""') + '"', 'flat', '', '', '', e.flatAmount.toFixed(2), e.flatAmount.toFixed(2), tasks, note]);
     } else {
       const hrs = (e.totalMins / 60).toFixed(4);
-      const earned = (Math.ceil(e.totalMins / 60 * e.rate * 100) / 100).toFixed(2);
+      const earned = calcEarned(e).toFixed(2);
       rows.push([e.date, '"' + e.name.replace(/"/g,'""') + '"', 'hourly', e.totalMins, hrs, e.rate || '', '', earned > 0 ? earned : '', tasks, note]);
     }
   });
@@ -1032,10 +1053,7 @@ function render() {
   const weekHourly = week.filter(e => e.type !== 'flat');
   const weekMins = weekHourly.reduce((s,e) => s + e.totalMins, 0);
   const weekHrs = weekMins / 60;
-  const weekEarnings = week.reduce((s,e) => {
-    if (e.type === 'flat') return s + e.flatAmount;
-    return s + Math.ceil(e.totalMins/60*e.rate * 100) / 100;
-  }, 0);
+  const weekEarnings = week.reduce((s,e) => s + calcEarned(e), 0);
   const todayMins = weekHourly.filter(e => e.date === today).reduce((s,e) => s + e.totalMins, 0);
   const todayHrs = todayMins / 60;
   const todayNet = todayHrs - DAILY_GOAL;
@@ -1117,10 +1135,7 @@ function render() {
   // Totals — time & avg rate from hourly only, earned includes flat
   const hourlyOnly = sorted.filter(e => e.type !== 'flat');
   const totMins = hourlyOnly.reduce((s, e) => s + e.totalMins, 0);
-  const totEarned = sorted.reduce((s, e) => {
-    if (e.type === 'flat') return s + e.flatAmount;
-    return s + Math.ceil(e.totalMins / 60 * e.rate * 100) / 100;
-  }, 0);
+  const totEarned = sorted.reduce((s, e) => s + calcEarned(e), 0);
   const ratedEntries = hourlyOnly.filter(e => e.rate > 0);
   const avgRate = ratedEntries.length
     ? ratedEntries.reduce((s, e) => s + e.rate, 0) / ratedEntries.length
@@ -1149,14 +1164,15 @@ function render() {
         <td style="white-space:nowrap;"><button class="edit-btn" onclick="openEdit(${e.id})" title="edit">✎</button><button class="del-btn" onclick="deleteEntry(${e.id})">×</button></td>
       </tr>`;
     } else {
-      const earned = Math.ceil(e.totalMins/60 * e.rate * 100) / 100;
+      const earned = calcEarned(e);
+      const earnedDisplay = earned > 0 ? '$'+earned.toFixed(2)+(e.earnedOverride != null ? '<span title="manually overridden" style="color:var(--muted);font-size:0.75em;">*</span>' : '') : '—';
       return `<tr>
         <td class="td-date">${dateStr}</td>
         <td class="td-name${e.note ? ' has-note' : ''}" ${e.note ? `data-note="${e.note.replace(/"/g,'&quot;')}"` : ''}>${e.name}</td>
         <td class="td-time">${minsToDisplay(e.totalMins)}</td>
         <td class="td-rate">${e.rate > 0 ? '$'+e.rate.toFixed(2)+'/hr' : '—'}</td>
         <td class="td-tasks">${e.tasks > 0 ? e.tasks : '—'}</td>
-        <td class="td-earned">${earned > 0 ? '$'+earned.toFixed(2) : '—'}</td>
+        <td class="td-earned">${earnedDisplay}</td>
         <td style="white-space:nowrap;"><button class="edit-btn" onclick="openEdit(${e.id})" title="edit">✎</button><button class="del-btn" onclick="deleteEntry(${e.id})">×</button></td>
       </tr>`;
     }
